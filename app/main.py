@@ -3,10 +3,10 @@ import time
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from typing import List
-from models.task import Task
-from services.task_service import TaskManager
-from config.get_logger import get_logger
-from config.middleware import logging_middleware
+from app.models.task import Task
+from app.services.task_service import TaskManager
+from app.config.get_logger import get_logger
+from app.config.middleware import logging_middleware
 from api.task_routes import router as task_router
 
 # Creating our application - like naming our project
