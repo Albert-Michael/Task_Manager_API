@@ -1,6 +1,6 @@
 
 from typing import List, Optional
-from models.task import Task
+from app.models.task import Task
 from datetime import datetime
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
