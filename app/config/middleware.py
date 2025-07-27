@@ -1,7 +1,7 @@
 import time
 import logging
 from fastapi import Request
-from starlette.middleware.base import RequestResponseEndpoint
+from starlette.middleware.base import RequestResponseEndpoint, BaseHTTPMiddleware
 from starlette.responses import Response
 
 #  ===== SETTING UP OUR ROUTES + LOGGING =====
@@ -26,3 +26,6 @@ async def log_request_info(request: Request, call_next):
     logger.info(f"Response status: {response.status_code}, took {process_time}s")
 
     return response
+
+def logging_middleware():
+    return BaseHTTPMiddleware(dispatch=log_request_info)

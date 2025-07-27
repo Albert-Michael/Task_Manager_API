@@ -1,82 +1,86 @@
 
 from typing import List, Optional
 from app.models.task import Task
-from datetime import datetime
-from fastapi import HTTPException
+from datetime import datetime, timezone
+from fastapi import HTTPException, Depends
 from pydantic import BaseModel, Field
+from app.models.task_model import TaskDB
+from app.schemas.task_schema import TaskUpdate
+from app.config.database import get_db
+from sqlalchemy.orm import Session
 
 # ======== TASK CONTROLLER, CRUD FUNCTIONS ========		
-class TaskManager(BaseModel):
-	tasks: List[Task] = Field(default_factory=list)
-	next_id: int = 1
-	class UpdateTaskReq(BaseModel):
-		title: str
-		
+class TaskManager:
+	def __init__(self, db: Session):
+		self.db = db
+
+
+#================= POST METHOD ===================
+
 #====== ADD A NEW TASKS ======		
-	def add_task(self, title: str) -> Task:
+	def add_task(self, title: str) -> TaskDB:
 		if not title or not title.strip():
 			raise HTTPException(status_code=400, detail="Title must be included")
 		
-		task = Task(id=self.next_id, title=title)
-		self.tasks.append(task)
-		self.next_id += 1
+		task = TaskDB(title=title)
+		self.db.add(task)
+		self.db.commit()
+		self.db.refresh(task)
 		return task
-		
+	
+#=====================================================
+
+#================= GET METHOD ===================
+
 #====== DISPLAY ALL EXISTING TASK ======			
 	def get_all_tasks(self):
-		return [task for task in self.tasks if not task.deleted]
+		all_tasks = self.db.query(TaskDB).filter_by(deleted=False).all()
+		if not all_tasks:
+			raise HTTPException(status_code=200, detail="No active tasks found")
+		return all_tasks
 	
 
 #====== DISPLAY ALL DELETED TASK ======
 	def get_all_deleted_tasks(self):
-		return [task for task in self.tasks if task.deleted]
+		all_deleted_tasks = self.db.query(TaskDB).filter_by(deleted=True).all()
+		if not all_deleted_tasks:
+			raise HTTPException(status_code=200, detail="No deleted tasks found")
+		return all_deleted_tasks 
 		
 #======TASK RETRIEVAL BY ID======		
 	def get_task(self, task_id):
-		for task in self.tasks:
-			if task.id == task_id:
-				return task
-		raise HTTPException(status_code=404, detail="Task not found")
+		task = self.db.query(TaskDB).filter_by(id=task_id).first()
+		if not task:
+			raise HTTPException(status_code=404, detail=f"Task ID {task_id} not found")
+		return task
 	
 #====== GET DELETED TASK BY ID ======	
-	def get_deleted_task(self, id: int, deleted: bool = True) -> Optional[Task]:
-		deleted_task = self.get_task(id)
-		if not deleted_task.deleted:
-			raise HTTPException(status_code=404, detail="Task is not Deleted ")
-		return deleted_task
-	
-#======TOGGLE COMPLETED TASK TO NOT COMPLETE ======	
-	def toggle_complete_task(self, id: int) -> Optional[Task]:
-		task = self.get_task(id)
-		task.completed = not task.completed
-		task.updated_at = datetime.utcnow().isoformat().replace("+00:00", "Z")
+	def get_deleted_task(self, task_id:int, deleted: bool = True) -> Optional[Task]:
+		task = self.db.query(TaskDB).filter_by(id=task_id,deleted=True).first()
+		if not task:
+			raise HTTPException(status_code=404, detail=f"Task ID {task_id} is not Deleted ")
 		return task
+	
+#=====================================================
+
+#================= PUT METHOD ===================
 				
 #====== UPDATE EXISTING TASK ======	
-	def update_task(self,id: int, new_title: str) -> Optional[Task]:
+	def update_task(self,id: int, update_data: TaskUpdate) -> Optional[Task]:
 		task = self.get_task(id)
-		if task:
-				validated = Task(
-					id=task.id, 
-					title=new_title, 
-					completed=task.completed,
-					deleted=task.deleted, 
-					created_at=task.created_at
-				)
-				task.title = validated.title
-				task.updated_at = datetime.utcnow().isoformat().replace("+00:00", "Z")
+		if not task:
+			raise HTTPException(status_code=404, detail=f"Task ID {id} not found")
+		
+		if update_data.title is not None:
+				task.title = update_data.title
+		if update_data.completed is not None:
+				task.completed = update_data.completed
 
-				return task
-		
-					
-#====== DELETE EXISTING TASK ======	
-	def delete_task(self, id: int) -> Optional[Task]:
-		task = self.get_task(id)  # Find the task by its ID
-		task.deleted = True  # Soft-delete the task (mark as deleted)
-		task.updated_at = datetime.utcnow().isoformat() + "Z"  # Update the timestamp
-		return task  # Return the updated task
-		
-    
+		task.updated_at = datetime.utcnow()
+		self.db.commit()
+		self.db.refresh(task)
+		return task
+
 #====== RESTORE DELETED TASK BY ID ======			
 	def restore_task(self, id: int) -> Optional[Task]:
 		# Try to find the task with the given ID
@@ -86,5 +90,25 @@ class TaskManager(BaseModel):
 		# If found, restore it by unmarking as deleted
 		task.deleted = False
 		# Update the timestamp to track when the task was restored
-		task.updated_at = datetime.utcnow().isoformat().replace("+00:00", "Z")
-		return task  # Return the restored task
+		task.updated_at = datetime.utcnow()
+		self.db.commit()
+		self.db.refresh(task)
+		return task  # Return the restored task		
+	
+#=====================================================	
+
+#================= DELETE METHOD ===================
+				
+#====== DELETE EXISTING TASK ======	
+	def delete_task(self, id: int) -> Optional[TaskDB]:
+		task = self.get_task(id)  # Find the task by its ID
+		task.deleted = True  # Soft-delete the task (mark as deleted)
+		task.deleted_at = datetime.utcnow()
+		task.updated_at = datetime.utcnow()  # Update the timestamp
+		if not task:
+			raise HTTPException(status_code=404, detail=f"Task ID {id} not found")
+		self.db.commit()
+		self.db.refresh(task)
+		return task  # Return the updated task
+		
+    
